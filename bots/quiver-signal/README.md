@@ -18,7 +18,7 @@ Positions close only via the stop-loss / take-profit, or by you.
 
 ## Setup
 
-**1. Add the Co-Invest Computer connector** to your Claude account (claude.ai → Settings → Connectors → add custom connector) with the URL `https://coinvest-computer.liquid.trade/mcp`, sign in to Liquid, and choose **Paper** mode. This is a different connector from the regular Liquid Co-Invest one, which asks you to approve every order in chat.
+**1. Add the Co-Invest Computer connector** to your Claude account (claude.ai → Settings → Connectors → add custom connector) with the URL `https://coinvest-computer.liquid.trade/mcp` and sign in to Liquid. Then, in a Claude chat, turn on paper trading and an automated trading policy with your maximum per-order amount. The policy lasts at most 7 days, so renew it weekly; the routine places nothing while it is expired. This is a different connector from the regular Liquid Co-Invest one, which asks you to approve every order in chat.
 
 **2. Rotate your Quiver token** on your Quiver account page, since the old one was shared in chat.
 

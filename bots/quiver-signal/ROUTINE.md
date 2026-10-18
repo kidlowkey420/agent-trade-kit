@@ -11,13 +11,15 @@ Paste everything below the line as the routine's prompt.
 
 Run one pass of the Quiver signal bot in `bots/quiver-signal`. Paper trading only.
 
-1. **Confirm paper mode.** Using the Co-Invest Computer connector, check the
-   account's trading mode. Continue only if it confirms Paper mode (simulated
-   balance). If it says Live or On request or Automated with real funds, or you
-   cannot confirm Paper, stop here, place nothing, and report why.
-2. **Get Liquid's stock markets.** Search Liquid markets with the query
+1. **Confirm paper mode and the order limit.** Call `paper_trading_status` and
+   `automated_trading_status` on the Liquid connector. Continue only if paper
+   trading is ENABLED and an automated trading policy is active. If paper is
+   disabled, the policy is missing or expired, or you cannot confirm either,
+   stop here, place nothing, and report why. Never call `enable_paper_trading`,
+   `disable_paper_trading` or `enable_automated_trading` yourself.
+2. **Get Liquid's stock markets.** Call `search_markets` with the query
    `stocks` and save the full JSON response to `/tmp/liquid-markets.json`.
-3. **Get open positions.** Read the paper portfolio and list the symbols of all
+3. **Get open positions.** Call `get_portfolio` and list the symbols of all
    open positions, comma separated (for example `xyz:AAPL,xyz:TSLA`).
 4. **Build the plan.** Run:
    ```bash
@@ -28,11 +30,10 @@ Run one pass of the Quiver signal bot in `bots/quiver-signal`. Paper trading onl
    The script prints a JSON plan to stdout. If it exits with an error, or
    `status` is `stopped`, place nothing and report the error or `reason`.
 5. **Place the planned orders, and only those.** For each entry in `orders`:
-   - Set leverage to 1x isolated on `symbol`.
-   - Place a market buy of `notionalUsd` USD on `symbol`.
-   - Attach a stop-loss at `stopLossPct` % below and a take-profit at
-     `takeProfitPct` % above the current mark price.
-   - Use `idempotencyKey` as the order's idempotency key when the tool accepts one.
+   - Get the current price with `analyze_market` on `symbol`.
+   - Call `execute_order` with `symbol`, `side: "buy"`, `type: "market"`,
+     `size: notionalUsd`, `leverage: 1`, `sl` = price × (1 − `stopLossPct`/100),
+     `tp` = price × (1 + `takeProfitPct`/100), and `idempotencyKey`.
    - If an order is rejected, note why and continue with the next one. Never
      retry with a different key, change the size, or buy anything not in `orders`.
 6. **Report** in a few lines: the signals found, each order placed or rejected
