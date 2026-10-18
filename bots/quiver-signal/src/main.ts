@@ -1,64 +1,94 @@
 /**
- * Quiver signal bot: buys OKX stock tokens that members of Congress (and, in
- * "both" mode, company insiders) have recently bought.
+ * Quiver signal bot: picks US stocks that members of Congress (and, in "both"
+ * mode, company insiders) have recently bought, for Liquid paper trading.
  *
- * One run = one pass. Schedule it (see .github/workflows/quiver-bot.yml).
+ * Liquid has no API key, so this script places no orders. It reads Quiver,
+ * matches tickers against Liquid's stock markets and prints a JSON trade plan.
+ * A scheduled Claude routine with the Co-Invest Computer connector supplies the
+ * markets and open positions, runs this, and places the planned orders
+ * (see ROUTINE.md).
+ *
+ * Usage:
+ *   tsx bots/quiver-signal/src/main.ts --markets markets.json [--held xyz:AAPL,xyz:TSLA]
+ *
+ * The plan goes to stdout; progress goes to stderr.
  */
-import { OkxRestClient, createToolRunner, loadConfig } from "../../../packages/core/src/index.js";
+import { readFileSync } from "node:fs";
+import { parseArgs } from "node:util";
 import { loadBotConfig } from "./config.js";
 import { QuiverAccessError, QuiverClient } from "./quiver.js";
 import {
   buildSignals,
-  clientOrderId,
   congressBuys,
+  heldSymbols,
+  idempotencyKey,
   insiderBuys,
-  mapStockTokens,
+  mapLiquidMarkets,
+  marketSymbolsFrom,
   pickTrades,
-  roundToTick,
   type InsiderTrade,
+  type Signal,
 } from "./strategy.js";
 
-type Row = Record<string, unknown>;
-
-function rows(result: { data: unknown }): Row[] {
-  return Array.isArray(result.data) ? (result.data as Row[]) : [];
+function log(msg: string): void {
+  process.stderr.write(`${msg}\n`);
 }
 
-function log(msg: string): void {
-  process.stdout.write(`${msg}\n`);
+interface Plan {
+  date: string;
+  /** "ok", or "stopped" when the run ended early and nothing should be bought. */
+  status: "ok" | "stopped";
+  reason?: string;
+  signalMode: string;
+  signals: Signal[];
+  openPositions: number;
+  maxOpenPositions: number;
+  orders: Array<{
+    symbol: string;
+    ticker: string;
+    side: "buy";
+    notionalUsd: number;
+    leverage: 1;
+    marginMode: "isolated";
+    stopLossPct: number;
+    takeProfitPct: number;
+    idempotencyKey: string;
+    reason: string;
+  }>;
 }
 
 async function main(): Promise<void> {
-  const bot = loadBotConfig();
-  const okxConfig = await loadConfig({ readOnly: false });
-  if (!okxConfig.apiKey) throw new Error("OKX_API_KEY / OKX_SECRET_KEY / OKX_PASSPHRASE are not set.");
-  if (!okxConfig.demo && !bot.allowLive) {
-    throw new Error(
-      "Refusing to trade real money. Set OKX_DEMO=1 for the demo account, " +
-        "or BOT_LIVE_TRADING=I_UNDERSTAND_THE_RISK to go live.",
-    );
-  }
+  const { values } = parseArgs({
+    options: { markets: { type: "string" }, held: { type: "string", default: "" } },
+  });
+  if (!values.markets) throw new Error("--markets <file> is required (Liquid's stock market search result as JSON).");
 
-  const run = createToolRunner(new OkxRestClient(okxConfig), okxConfig);
+  const bot = loadBotConfig();
+  const marketSymbols = marketSymbolsFrom(JSON.parse(readFileSync(values.markets, "utf8")));
+  if (marketSymbols.length === 0) throw new Error(`No market symbols found in ${values.markets}.`);
+  const markets = mapLiquidMarkets(marketSymbols);
+  const open = heldSymbols(values.held.split(","), markets);
+
   const quiver = new QuiverClient(bot.quiverToken);
   const today = new Date().toISOString().slice(0, 10);
-  const demo = okxConfig.demo;
+  const plan: Plan = {
+    date: today,
+    status: "ok",
+    signalMode: bot.signalMode,
+    signals: [],
+    openPositions: open.size,
+    maxOpenPositions: bot.maxOpenPositions,
+    orders: [],
+  };
 
-  log(`Mode: ${demo ? "DEMO" : "LIVE"}${bot.dryRun ? " (dry run, no orders)" : ""} | signal=${bot.signalMode} | $${bot.tradeUsd}/trade | lookback ${bot.lookbackDays}d`);
+  log(`signal=${bot.signalMode} | $${bot.tradeUsd}/trade | lookback ${bot.lookbackDays}d | Liquid stock markets: ${markets.size}`);
 
-  // 1. What can we trade on OKX?
-  const instruments = rows(await run("market_get_instruments_by_category", { instCategory: "3", demo }));
-  const live = instruments.filter((i) => i.state === undefined || i.state === "live");
-  const tokens = mapStockTokens(live.map((i) => String(i.instId)));
-  const tickSizes = new Map(live.map((i) => [String(i.instId), String(i.tickSz ?? "")]));
-  log(`OKX stock tokens available: ${tokens.size}`);
-
-  // 2. Congressional purchases.
+  // 1. Congressional purchases.
   const congress = congressBuys(await quiver.congressTrades(), today, bot.lookbackDays);
-  const tradeableCongress = [...congress.keys()].filter((t) => tokens.has(t));
-  log(`Congress-bought tickers (last ${bot.lookbackDays}d): ${congress.size}, tradeable on OKX: ${tradeableCongress.length}`);
+  const tradeableCongress = [...congress.keys()].filter((t) => markets.has(t));
+  log(`Congress-bought tickers (last ${bot.lookbackDays}d): ${congress.size}, on Liquid: ${tradeableCongress.length}`);
 
-  // 3. Insider purchases, only for tickers that already passed step 2.
+  // 2. Insider purchases, only for tickers that already passed step 1.
   let insiders = new Map<string, Set<string>>();
   if (bot.signalMode === "both") {
     const all: InsiderTrade[] = [];
@@ -66,8 +96,10 @@ async function main(): Promise<void> {
       for (const ticker of tradeableCongress) all.push(...(await quiver.insiderTrades(ticker)));
     } catch (err) {
       if (err instanceof QuiverAccessError) {
-        log(`STOP: ${err.message}`);
-        log('The insider feed needs Quiver\'s Trader plan. Upgrade, or set SIGNAL_MODE=congress. No trades placed.');
+        plan.status = "stopped";
+        plan.reason = `${err.message} The insider feed may need a higher Quiver plan. Upgrade, or set SIGNAL_MODE=congress.`;
+        log(`STOP: ${plan.reason}`);
+        process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
         return;
       }
       throw err;
@@ -75,62 +107,29 @@ async function main(): Promise<void> {
     insiders = insiderBuys(all, today, bot.lookbackDays);
   }
 
-  const signals = buildSignals(congress, insiders, tokens, bot.signalMode === "both");
-  log(`Signals: ${signals.length}`);
-  for (const s of signals) {
-    log(`  ${s.instId}  congress=[${s.congressBuyers.join(", ")}]  insiders=[${s.insiderBuyers.join(", ")}]`);
+  // 3. Rank, skip what is already held, respect position limits.
+  plan.signals = buildSignals(congress, insiders, markets, bot.signalMode === "both");
+  for (const s of plan.signals) {
+    log(`  ${s.symbol}  congress=[${s.congressBuyers.join(", ")}]  insiders=[${s.insiderBuyers.join(", ")}]`);
   }
-  if (signals.length === 0) return;
+  const picks = pickTrades(plan.signals, open, bot.maxOpenPositions, bot.maxNewTradesPerRun);
+  log(`Open positions: ${open.size}/${bot.maxOpenPositions}. To buy: ${picks.map((p) => p.symbol).join(", ") || "none"}`);
 
-  // 4. Skip what we already hold; respect position limits.
-  const positions = rows(await run("swap_get_positions", { instType: "SWAP" }));
-  const open = new Set(positions.filter((p) => Number(p.pos) !== 0).map((p) => String(p.instId)));
-  const picks = pickTrades(signals, open, bot.maxOpenPositions, bot.maxNewTradesPerRun);
-  log(`Open positions: ${open.size}/${bot.maxOpenPositions}. Buying now: ${picks.map((p) => p.instId).join(", ") || "none"}`);
-
-  // 5. Place orders: 1x isolated (max loss = the margin), with stop-loss and take-profit attached.
-  for (const pick of picks) {
-    const ticker = rows(await run("market_get_ticker", { instId: pick.instId, demo }))[0];
-    const last = Number(ticker?.last);
-    if (!Number.isFinite(last) || last <= 0) {
-      log(`  ${pick.instId}: no price, skipped`);
-      continue;
-    }
-    const tick = tickSizes.get(pick.instId) ?? "";
-    const sl = roundToTick(last * (1 - bot.stopLossPct / 100), tick);
-    const tp = roundToTick(last * (1 + bot.takeProfitPct / 100), tick);
-    const order = {
-      instId: pick.instId,
-      tdMode: "isolated",
-      side: "buy",
-      ordType: "market",
-      sz: String(bot.tradeUsd),
-      tgtCcy: "quote_ccy",
-      clOrdId: clientOrderId(pick.ticker, today),
-      slTriggerPx: sl,
-      slOrdPx: "-1",
-      tpTriggerPx: tp,
-      tpOrdPx: "-1",
-    };
-
-    if (bot.dryRun) {
-      log(`  [dry run] would buy $${bot.tradeUsd} ${pick.instId} @ ~${last}, SL ${sl}, TP ${tp}`);
-      continue;
-    }
-
-    try {
-      await run("swap_set_leverage", { instId: pick.instId, lever: "1", mgnMode: "isolated" });
-      const res = rows(await run("swap_place_order", order))[0];
-      if (res && res.sCode !== undefined && String(res.sCode) !== "0") {
-        log(`  ${pick.instId}: order rejected (${res.sCode}) ${res.sMsg ?? ""}`);
-        continue;
-      }
-      log(`  ${pick.instId}: bought $${bot.tradeUsd} @ ~${last}, SL ${sl}, TP ${tp} (ordId ${res?.ordId ?? "?"})`);
-    } catch (err) {
-      // One bad instrument shouldn't stop the rest.
-      log(`  ${pick.instId}: failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
+  plan.orders = picks.map((p) => ({
+    symbol: p.symbol,
+    ticker: p.ticker,
+    side: "buy",
+    notionalUsd: bot.tradeUsd,
+    leverage: 1,
+    marginMode: "isolated",
+    stopLossPct: bot.stopLossPct,
+    takeProfitPct: bot.takeProfitPct,
+    idempotencyKey: idempotencyKey(p.ticker, today),
+    reason:
+      `Congress: ${p.congressBuyers.join(", ")}` +
+      (p.insiderBuyers.length ? `; insiders: ${p.insiderBuyers.join(", ")}` : ""),
+  }));
+  process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
 }
 
 main().catch((err: unknown) => {

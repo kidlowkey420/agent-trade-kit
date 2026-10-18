@@ -7,8 +7,6 @@ export interface BotConfig {
   maxNewTradesPerRun: number;
   stopLossPct: number;
   takeProfitPct: number;
-  dryRun: boolean;
-  allowLive: boolean;
 }
 
 function num(name: string, fallback: number, min: number, max: number): number {
@@ -19,10 +17,6 @@ function num(name: string, fallback: number, min: number, max: number): number {
     throw new Error(`${name} must be a number between ${min} and ${max} (got "${raw}").`);
   }
   return n;
-}
-
-function flag(name: string): boolean {
-  return ["1", "true", "yes"].includes((process.env[name] ?? "").trim().toLowerCase());
 }
 
 export function loadBotConfig(): BotConfig {
@@ -37,14 +31,12 @@ export function loadBotConfig(): BotConfig {
   return {
     quiverToken,
     signalMode: mode,
-    tradeUsd: num("TRADE_USD", 100, 5, 10_000),
+    // Liquid rejects orders under $15 of collateral; at 1x leverage that is the notional.
+    tradeUsd: num("TRADE_USD", 100, 15, 10_000),
     lookbackDays: num("LOOKBACK_DAYS", 14, 1, 90),
     maxOpenPositions: num("MAX_OPEN_POSITIONS", 5, 1, 50),
     maxNewTradesPerRun: num("MAX_NEW_TRADES_PER_RUN", 2, 1, 20),
     stopLossPct: num("STOP_LOSS_PCT", 10, 1, 90),
     takeProfitPct: num("TAKE_PROFIT_PCT", 20, 1, 500),
-    dryRun: flag("DRY_RUN"),
-    // Live trading needs this exact phrase so it can't be switched on by accident.
-    allowLive: process.env.BOT_LIVE_TRADING?.trim() === "I_UNDERSTAND_THE_RISK",
   };
 }

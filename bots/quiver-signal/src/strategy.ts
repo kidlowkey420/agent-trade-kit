@@ -21,7 +21,8 @@ export interface InsiderTrade {
 
 export interface Signal {
   ticker: string;
-  instId: string;
+  /** Liquid market symbol, e.g. "xyz:AAPL". */
+  symbol: string;
   congressBuyers: string[];
   insiderBuyers: string[];
 }
@@ -31,12 +32,25 @@ export function normalizeTicker(raw: string): string {
   return raw.toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
-/** Map normalized ticker -> OKX instId, e.g. AAPL -> AAPL-USDT-SWAP. */
-export function mapStockTokens(instIds: string[]): Map<string, string> {
+/** Market venues on Liquid, most preferred first, when one ticker is listed more than once. */
+const VENUE_PREFERENCE = ["xyz"];
+
+/**
+ * Map normalized ticker -> Liquid market symbol, e.g. AAPL -> xyz:AAPL.
+ * Takes the symbols from Liquid's stock market search ("xyz:AAPL", "para:STX").
+ */
+export function mapLiquidMarkets(symbols: string[]): Map<string, string> {
+  const rank = (symbol: string) => {
+    const i = VENUE_PREFERENCE.indexOf(symbol.split(":")[0]);
+    return i === -1 ? VENUE_PREFERENCE.length : i;
+  };
   const map = new Map<string, string>();
-  for (const instId of instIds) {
-    const base = instId.split("-")[0];
-    if (base) map.set(normalizeTicker(base), instId);
+  for (const symbol of symbols) {
+    const base = symbol.includes(":") ? symbol.slice(symbol.indexOf(":") + 1) : symbol;
+    const key = normalizeTicker(base);
+    if (!key) continue;
+    const existing = map.get(key);
+    if (!existing || rank(symbol) < rank(existing)) map.set(key, symbol);
   }
   return map;
 }
@@ -86,24 +100,24 @@ export function insiderBuys(
 
 /**
  * Build ranked signals. With `requireInsider`, a ticker needs both a congressional
- * and an insider purchase. Only tickers tradeable on OKX are returned.
+ * and an insider purchase. Only tickers tradeable on Liquid are returned.
  * Ranked by total distinct buyers, most first; ties broken alphabetically.
  */
 export function buildSignals(
   congress: Map<string, Set<string>>,
   insiders: Map<string, Set<string>>,
-  tokens: Map<string, string>,
+  markets: Map<string, string>,
   requireInsider: boolean,
 ): Signal[] {
   const signals: Signal[] = [];
   for (const [ticker, buyers] of congress) {
-    const instId = tokens.get(ticker);
-    if (!instId) continue;
+    const symbol = markets.get(ticker);
+    if (!symbol) continue;
     const insiderSet = insiders.get(ticker);
     if (requireInsider && !insiderSet?.size) continue;
     signals.push({
       ticker,
-      instId,
+      symbol,
       congressBuyers: [...buyers].sort(),
       insiderBuyers: [...(insiderSet ?? [])].sort(),
     });
@@ -115,23 +129,40 @@ export function buildSignals(
 /** Choose which signals to act on given open positions and limits. */
 export function pickTrades(
   signals: Signal[],
-  openInstIds: Set<string>,
+  openSymbols: Set<string>,
   maxOpenPositions: number,
   maxNewTrades: number,
 ): Signal[] {
-  const slots = Math.max(0, Math.min(maxNewTrades, maxOpenPositions - openInstIds.size));
-  return signals.filter((s) => !openInstIds.has(s.instId)).slice(0, slots);
+  const slots = Math.max(0, Math.min(maxNewTrades, maxOpenPositions - openSymbols.size));
+  return signals.filter((s) => !openSymbols.has(s.symbol)).slice(0, slots);
 }
 
-/** Deterministic client order id (alphanumeric, <= 32 chars) so a rerun on the same day can't double-buy. */
-export function clientOrderId(ticker: string, today: string): string {
-  return `qb${normalizeTicker(ticker)}${today.replace(/-/g, "")}`.slice(0, 32);
+/** Deterministic idempotency key, so a retried order for the same ticker on the same day is not placed twice. */
+export function idempotencyKey(ticker: string, today: string): string {
+  return `quiver-${normalizeTicker(ticker)}-${today.replace(/-/g, "")}`;
 }
 
-/** Round a price to the instrument's tick size. */
-export function roundToTick(price: number, tickSz: string): string {
-  const tick = Number(tickSz);
-  if (!Number.isFinite(tick) || tick <= 0) return String(price);
-  const decimals = (tickSz.split(".")[1] ?? "").length;
-  return (Math.round(price / tick) * tick).toFixed(decimals);
+/**
+ * Pull market symbols out of Liquid's market search result. Accepts the raw
+ * `{ markets: [{ symbol }] }` response, a bare array of those rows, or an array of symbol strings.
+ */
+export function marketSymbolsFrom(data: unknown): string[] {
+  const list = Array.isArray(data) ? data : (data as { markets?: unknown } | null)?.markets;
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((m) => (typeof m === "string" ? m : (m as { symbol?: unknown } | null)?.symbol))
+    .filter((s): s is string => typeof s === "string" && s.trim() !== "")
+    .map((s) => s.trim());
+}
+
+/** Resolve held positions (as "xyz:AAPL" or plain "AAPL") to Liquid market symbols. */
+export function heldSymbols(held: string[], markets: Map<string, string>): Set<string> {
+  const out = new Set<string>();
+  for (const raw of held) {
+    const h = raw.trim();
+    if (!h) continue;
+    const base = h.includes(":") ? h.slice(h.indexOf(":") + 1) : h;
+    out.add(markets.get(normalizeTicker(base)) ?? h);
+  }
+  return out;
 }

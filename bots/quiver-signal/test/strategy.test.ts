@@ -2,13 +2,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   buildSignals,
-  clientOrderId,
   congressBuys,
+  heldSymbols,
+  idempotencyKey,
   insiderBuys,
-  mapStockTokens,
+  mapLiquidMarkets,
+  marketSymbolsFrom,
   normalizeTicker,
   pickTrades,
-  roundToTick,
   withinWindow,
 } from "../src/strategy.js";
 
@@ -19,10 +20,26 @@ test("normalizeTicker treats share-class punctuation as equal", () => {
   assert.equal(normalizeTicker("BRK-B"), "BRKB");
 });
 
-test("mapStockTokens keys by base ticker", () => {
-  const map = mapStockTokens(["AAPL-USDT-SWAP", "TSLA-USDT-SWAP"]);
-  assert.equal(map.get("AAPL"), "AAPL-USDT-SWAP");
-  assert.equal(map.size, 2);
+test("mapLiquidMarkets keys by ticker and prefers the xyz venue on duplicates", () => {
+  const map = mapLiquidMarkets(["para:STX", "xyz:AAPL", "xyz:BRK.B", "para:AAPL", "io:IONQ"]);
+  assert.equal(map.get("AAPL"), "xyz:AAPL");
+  assert.equal(map.get("STX"), "para:STX");
+  assert.equal(map.get("BRKB"), "xyz:BRK.B");
+  assert.equal(map.get("IONQ"), "io:IONQ");
+  assert.equal(map.size, 4);
+});
+
+test("marketSymbolsFrom reads the market search response in any of its shapes", () => {
+  const rows = [{ symbol: "xyz:AAPL", displayName: "AAPL" }, { symbol: "" }, { displayName: "x" }];
+  assert.deepEqual(marketSymbolsFrom({ markets: rows }), ["xyz:AAPL"]);
+  assert.deepEqual(marketSymbolsFrom(rows), ["xyz:AAPL"]);
+  assert.deepEqual(marketSymbolsFrom(["xyz:TSLA", 3]), ["xyz:TSLA"]);
+  assert.deepEqual(marketSymbolsFrom(null), []);
+});
+
+test("heldSymbols matches positions given with or without a venue prefix", () => {
+  const markets = mapLiquidMarkets(["xyz:AAPL", "xyz:TSLA"]);
+  assert.deepEqual([...heldSymbols(["AAPL", " xyz:TSLA", "", "BTC"], markets)], ["xyz:AAPL", "xyz:TSLA", "BTC"]);
 });
 
 test("withinWindow rejects future, stale and malformed dates", () => {
@@ -62,40 +79,33 @@ test("insiderBuys keeps open-market purchases (code P) only", () => {
   assert.deepEqual([...out.keys()], ["AAPL"]);
 });
 
-test("buildSignals in both-mode requires an insider buy and an OKX token", () => {
+test("buildSignals in both-mode requires an insider buy and a Liquid market", () => {
   const congress = new Map([
     ["AAPL", new Set(["A"])],
     ["TSLA", new Set(["B", "C"])],
     ["ZZZZ", new Set(["D"])],
   ]);
   const insiders = new Map([["AAPL", new Set(["CEO"])]]);
-  const tokens = mapStockTokens(["AAPL-USDT-SWAP", "TSLA-USDT-SWAP"]);
+  const markets = mapLiquidMarkets(["xyz:AAPL", "xyz:TSLA"]);
 
-  const both = buildSignals(congress, insiders, tokens, true);
-  assert.deepEqual(both.map((s) => s.instId), ["AAPL-USDT-SWAP"]);
+  const both = buildSignals(congress, insiders, markets, true);
+  assert.deepEqual(both.map((s) => s.symbol), ["xyz:AAPL"]);
 
-  const congressOnly = buildSignals(congress, insiders, tokens, false);
+  const congressOnly = buildSignals(congress, insiders, markets, false);
   // TSLA has 2 buyers, AAPL has 1 congress + 1 insider: tie broken alphabetically.
-  assert.deepEqual(congressOnly.map((s) => s.instId), ["AAPL-USDT-SWAP", "TSLA-USDT-SWAP"]);
+  assert.deepEqual(congressOnly.map((s) => s.symbol), ["xyz:AAPL", "xyz:TSLA"]);
 });
 
-test("pickTrades skips held instruments and respects both limits", () => {
-  const sig = (t: string) => ({ ticker: t, instId: `${t}-USDT-SWAP`, congressBuyers: [], insiderBuyers: [] });
+test("pickTrades skips held markets and respects both limits", () => {
+  const sig = (t: string) => ({ ticker: t, symbol: `xyz:${t}`, congressBuyers: [], insiderBuyers: [] });
   const signals = [sig("A"), sig("B"), sig("C"), sig("D")];
 
-  assert.deepEqual(pickTrades(signals, new Set(["A-USDT-SWAP"]), 5, 2).map((s) => s.ticker), ["B", "C"]);
+  assert.deepEqual(pickTrades(signals, new Set(["xyz:A"]), 5, 2).map((s) => s.ticker), ["B", "C"]);
   assert.deepEqual(pickTrades(signals, new Set(["X", "Y", "Z", "W"]), 5, 2).map((s) => s.ticker), ["A"]);
   assert.deepEqual(pickTrades(signals, new Set(["X", "Y", "Z", "W", "V"]), 5, 2), []);
 });
 
-test("clientOrderId is stable per ticker per day and within OKX limits", () => {
-  const id = clientOrderId("brk.b", TODAY);
-  assert.equal(id, "qbBRKB20261010");
-  assert.match(id, /^[A-Za-z0-9]{1,32}$/);
-});
-
-test("roundToTick snaps to the instrument tick size", () => {
-  assert.equal(roundToTick(123.456, "0.01"), "123.46");
-  assert.equal(roundToTick(123.456, "0.5"), "123.5");
-  assert.equal(roundToTick(123.456, ""), "123.456");
+test("idempotencyKey is stable per ticker per day", () => {
+  assert.equal(idempotencyKey("brk.b", TODAY), "quiver-BRKB-20261010");
+  assert.equal(idempotencyKey("BRK-B", TODAY), idempotencyKey("brk.b", TODAY));
 });
