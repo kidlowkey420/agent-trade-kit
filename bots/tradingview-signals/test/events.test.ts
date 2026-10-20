@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   congressEvents,
+  compactCase,
+  encodeCompact,
   encodeEvents,
   insiderEvents,
   normalizeTicker,
@@ -99,4 +101,22 @@ test("renderPine fills the template, including $ amounts verbatim", () => {
 test("renderPine fills every copy of a placeholder", () => {
   const pine = renderPine(new Map(), TODAY, '// {{AS_OF}}\nconst string AS_OF = "{{AS_OF}}"\n');
   assert.equal(pine, '// 2026-10-20\nconst string AS_OF = "2026-10-20"\n');
+});
+
+test("encodeCompact merges same-day filings and counts the filers", () => {
+  const records = encodeCompact([
+    ev({ date: "2025-01-03", who: "A" }),
+    ev({ date: "2025-01-03", who: "B" }),
+    ev({ date: "2025-01-02", side: "S", source: "I" }),
+  ]);
+  assert.deepEqual(records, ["20250102SI1", "20250103BC2"]);
+});
+
+test("compactCase splits a ticker's data across short lines", () => {
+  const src = compactCase("AAPL", ["20250102BC1", "20250103BC2", "20250104SC1"], true, 2);
+  assert.equal(
+    src,
+    '    if t == "AAPL"\n        s += "20250102BC1;20250103BC2;"\n        s += "20250104SC1;"',
+  );
+  assert.ok(compactCase("MSFT", ["20250102BC1"], false).startsWith('    else if t == "MSFT"'));
 });

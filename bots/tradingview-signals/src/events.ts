@@ -151,3 +151,37 @@ export function renderPine(selected: Map<string, ChartEvent[]>, asOf: string, te
     .replace("{{SUMMARY}}", () => `${selected.size} tickers, ${total} trades`)
     .replace("{{CASES}}", () => cases);
 }
+
+/**
+ * Compact encoding for the backtest strategy: one record per filing day, side and source,
+ * "YYYYMMDD" + side + source + number of filers, e.g. "20250103BC2". Oldest first.
+ */
+export function encodeCompact(events: ChartEvent[]): string[] {
+  const counts = new Map<string, number>();
+  for (const e of events) {
+    const key = e.date.replaceAll("-", "") + e.side + e.source;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, n]) => key + n);
+}
+
+/** Pine source lines that build one ticker's data string in pieces, so no literal gets long. */
+export function compactCase(ticker: string, records: string[], first: boolean, perLine = 60): string {
+  const lines = [`    ${first ? "if" : "else if"} t == "${ticker}"`];
+  for (let i = 0; i < records.length; i += perLine) {
+    lines.push(`        s += "${records.slice(i, i + perLine).join(";")};"`);
+  }
+  return lines.join("\n");
+}
+
+export function renderStrategy(selected: Map<string, ChartEvent[]>, asOf: string, from: string, template: string): string {
+  const entries = [...selected.entries()];
+  const cases = entries.map(([ticker, events], i) => compactCase(ticker, encodeCompact(events), i === 0)).join("\n");
+  const total = [...selected.values()].reduce((n, l) => n + l.length, 0);
+  return template
+    .replaceAll("{{AS_OF}}", () => asOf)
+    .replaceAll("{{FROM}}", () => from)
+    .replace("{{SUMMARY}}", () => `${selected.size} tickers, ${total} trades`)
+    .replace("{{TICKERS}}", () => entries.map(([t]) => t).join(", "))
+    .replace("{{CASES}}", () => cases);
+}

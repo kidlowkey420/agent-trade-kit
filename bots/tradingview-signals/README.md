@@ -76,3 +76,18 @@ generated file.
 ```bash
 npx tsx --test bots/tradingview-signals/test/*.test.ts
 ```
+
+## Backtest
+
+[`pine/quiver-strategy.pine`](pine/quiver-strategy.pine) is a TradingView strategy that buys after
+Congress or insider buys are disclosed, for the 35 stocks Congress traded most over two years.
+Paste it the same way, open one of the tickers listed at its top on the **1D** chart, and open the
+**Strategy Tester** tab. Settings choose the entry (Congress, insider, any or cluster buy, and a
+minimum number of buyers that day), the hold time, and an optional stop loss and take profit.
+Orders fill at the next day's open after the filing date, with 0.05% commission and 2 ticks of slippage.
+
+Regenerate it from saved history (one `<TICKER>.json` per stock in a folder):
+
+```bash
+npx tsx bots/tradingview-signals/src/backtest.ts <folder> 2024-10-01 2026-10-20
+```
