@@ -147,7 +147,7 @@ export function renderPine(selected: Map<string, ChartEvent[]>, asOf: string, te
     .join("\n");
   const total = [...selected.values()].reduce((n, l) => n + l.length, 0);
   return template
-    .replace("{{AS_OF}}", () => asOf)
+    .replaceAll("{{AS_OF}}", () => asOf)
     .replace("{{SUMMARY}}", () => `${selected.size} tickers, ${total} trades`)
     .replace("{{CASES}}", () => cases);
 }

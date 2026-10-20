@@ -6,7 +6,7 @@
 // Chart markers and alerts only: this script never places orders.
 indicator("Quiver Congress & Insider Signals", shorttitle = "Quiver", overlay = true, max_labels_count = 500)
 
-const string AS_OF = "{{AS_OF}}"
+const string AS_OF = "2026-10-20"
 
 bool showCongress = input.bool(true, "Congress trades", group = "Show")
 bool showInsider = input.bool(true, "Insider trades (SEC Form 4)", group = "Show")

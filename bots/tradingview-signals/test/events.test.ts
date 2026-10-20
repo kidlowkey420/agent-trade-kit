@@ -95,3 +95,8 @@ test("renderPine fills the template, including $ amounts verbatim", () => {
     '// 2026-10-20 1 tickers, 1 trades\n        "AAPL" => "2026-10-10|B|C|Jane Doe|$1,001 - $15,000"\n',
   );
 });
+
+test("renderPine fills every copy of a placeholder", () => {
+  const pine = renderPine(new Map(), TODAY, '// {{AS_OF}}\nconst string AS_OF = "{{AS_OF}}"\n');
+  assert.equal(pine, '// 2026-10-20\nconst string AS_OF = "2026-10-20"\n');
+});
