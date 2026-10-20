@@ -11,7 +11,9 @@ writes them into the script. Regenerate it to refresh the data, then paste it ag
 
 1. Open [`pine/quiver-signals.pine`](pine/quiver-signals.pine) and copy all of it.
 2. In TradingView, open a chart and click **Pine Editor** at the bottom.
-3. Replace the editor's contents with the copied script, click **Save**, then **Add to chart**.
+3. Click inside the editor, press Ctrl+A (Cmd+A on a Mac) to select the starter code TradingView puts
+   there, paste over it, then click **Save** and **Add to chart**. If any starter code is left, you get
+   "Scripts must contain one declaration statement".
 4. Open any ticker in the data. The panel in the top right says how many Quiver trades it has
    and the date the data was pulled.
 
