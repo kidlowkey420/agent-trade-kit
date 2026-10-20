@@ -1,0 +1,116 @@
+//@version=6
+// Quiver Congress & Insider Signals
+// Data: Quiver Quant, generated {{AS_OF}} ({{SUMMARY}}) by bots/tradingview-signals.
+// Pine Script can't fetch outside data, so the trades are embedded below. Regenerate the
+// script to refresh them instead of editing the data block by hand.
+// Chart markers and alerts only: this script never places orders.
+indicator("Quiver Congress & Insider Signals", shorttitle = "Quiver", overlay = true, max_labels_count = 500)
+
+const string AS_OF = "{{AS_OF}}"
+
+bool showCongress = input.bool(true, "Congress trades", group = "Show")
+bool showInsider = input.bool(true, "Insider trades (SEC Form 4)", group = "Show")
+bool showSells = input.bool(true, "Sells", group = "Show")
+bool showTable = input.bool(true, "Info panel", group = "Show")
+int clusterDays = input.int(30, "Cluster window (days)", minval = 1, group = "Signals",
+     tooltip = "A buy is a cluster buy when Congress and insiders both bought this stock within this many days.")
+
+// Records are date|side|source|who|detail, oldest first. side: B/S. source: C = Congress, I = insider.
+eventsFor(string t) =>
+    switch t
+{{CASES}}
+        => ""
+
+// "BRK.B" and "BRK-B" are stored as "BRKB".
+string symKey = str.replace_all(str.replace_all(str.upper(syminfo.ticker), ".", ""), "-", "")
+
+var array<int> evDay = array.new<int>()
+var array<string> evSide = array.new<string>()
+var array<string> evSrc = array.new<string>()
+var array<string> evText = array.new<string>()
+
+if barstate.isfirst
+    string raw = eventsFor(symKey)
+    if str.length(raw) > 0
+        for rec in str.split(raw, ";")
+            array<string> f = str.split(rec, "|")
+            if f.size() >= 5
+                // "2026-10-01" -> 20261001, compared with each bar's date as a plain number.
+                evDay.push(int(str.tonumber(str.replace_all(f.get(0), "-", ""))))
+                evSide.push(f.get(1))
+                evSrc.push(f.get(2))
+                string detail = f.get(4)
+                evText.push(f.get(3) + (str.length(detail) > 0 ? " (" + detail + ")" : "") + ", filed " + f.get(0))
+
+// Walk the events once: each lands on the first bar whose closing date is on or after its filing date.
+var int nextIdx = 0
+var int shown = 0
+bool congressBuy = false
+bool congressSell = false
+bool insiderBuy = false
+bool insiderSell = false
+string buyTip = ""
+string sellTip = ""
+int barEnd = na(time_close) ? time : time_close
+int barDay = year(barEnd, syminfo.timezone) * 10000 + month(barEnd, syminfo.timezone) * 100 + dayofmonth(barEnd, syminfo.timezone)
+int barStartDay = year(time, syminfo.timezone) * 10000 + month(time, syminfo.timezone) * 100 + dayofmonth(time, syminfo.timezone)
+while nextIdx < evDay.size() and evDay.get(nextIdx) <= barDay
+    // On the first bar, anything older was filed before the chart's history starts.
+    if bar_index > 0 or evDay.get(nextIdx) >= barStartDay
+        bool isCongress = evSrc.get(nextIdx) == "C"
+        bool isBuy = evSide.get(nextIdx) == "B"
+        if (isCongress ? showCongress : showInsider) and (isBuy or showSells)
+            string entry = (isCongress ? "Congress: " : "Insider: ") + evText.get(nextIdx)
+            shown += 1
+            if isBuy
+                buyTip += (str.length(buyTip) > 0 ? "\n" : "") + entry
+                if isCongress
+                    congressBuy := true
+                else
+                    insiderBuy := true
+            else
+                sellTip += (str.length(sellTip) > 0 ? "\n" : "") + entry
+                if isCongress
+                    congressSell := true
+                else
+                    insiderSell := true
+    nextIdx += 1
+
+var int lastCongressBuy = na
+var int lastInsiderBuy = na
+if congressBuy
+    lastCongressBuy := time
+if insiderBuy
+    lastInsiderBuy := time
+bool anyBuy = congressBuy or insiderBuy
+bool anySell = congressSell or insiderSell
+bool clusterBuy = anyBuy and not na(lastCongressBuy) and not na(lastInsiderBuy) and math.abs(lastCongressBuy - lastInsiderBuy) <= clusterDays * 86400000
+
+if anyBuy
+    string who = congressBuy and insiderBuy ? "C+I" : congressBuy ? "C" : "I"
+    label.new(bar_index, low, (clusterBuy ? "★ " : "") + who, yloc = yloc.belowbar, style = label.style_label_up,
+         color = clusterBuy ? color.yellow : congressBuy ? color.green : color.teal,
+         textcolor = clusterBuy ? color.black : color.white, size = size.normal, tooltip = buyTip)
+if anySell
+    string who = congressSell and insiderSell ? "C+I" : congressSell ? "C" : "I"
+    label.new(bar_index, high, who, yloc = yloc.abovebar, style = label.style_label_down,
+         color = congressSell ? color.red : color.orange, textcolor = color.white, size = size.normal, tooltip = sellTip)
+
+bgcolor(clusterBuy ? color.new(color.yellow, 85) : na, title = "Cluster buy")
+
+alertcondition(congressBuy, "Congress buy", "Quiver: a member of Congress disclosed a buy of {{ticker}}")
+alertcondition(insiderBuy, "Insider buy", "Quiver: an insider disclosed an open-market buy of {{ticker}}")
+alertcondition(clusterBuy, "Cluster buy", "Quiver: Congress and insiders both bought {{ticker}} recently")
+alertcondition(anySell, "Congress or insider sell", "Quiver: a Congress or insider sell of {{ticker}} was disclosed")
+
+// Detailed message for alerts set to "Any alert() function call".
+if anyBuy
+    alert(syminfo.ticker + (clusterBuy ? " CLUSTER BUY" : " buy") + " disclosed\n" + buyTip, alert.freq_once_per_bar)
+if anySell
+    alert(syminfo.ticker + " sell disclosed\n" + sellTip, alert.freq_once_per_bar)
+
+var table info = table.new(position.top_right, 1, 1)
+if showTable and barstate.islast
+    string msg = evDay.size() > 0 ? str.tostring(evDay.size()) + " Quiver trades for " + syminfo.ticker + ", " + str.tostring(shown) + " on chart" : "No Quiver trades for " + syminfo.ticker + " in this data"
+    table.cell(info, 0, 0, msg + "\nData as of " + AS_OF, text_color = chart.fg_color, text_size = size.small,
+         bgcolor = color.new(chart.bg_color, 20))
