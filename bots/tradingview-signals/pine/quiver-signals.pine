@@ -239,7 +239,7 @@ eventsFor(string t) =>
 // "BRK.B" and "BRK-B" are stored as "BRKB".
 string symKey = str.replace_all(str.replace_all(str.upper(syminfo.ticker), ".", ""), "-", "")
 
-var array<int> evTime = array.new<int>()
+var array<int> evDay = array.new<int>()
 var array<string> evSide = array.new<string>()
 var array<string> evSrc = array.new<string>()
 var array<string> evText = array.new<string>()
@@ -250,18 +250,16 @@ if barstate.isfirst
         for rec in str.split(raw, ";")
             array<string> f = str.split(rec, "|")
             if f.size() >= 5
-                array<string> d = str.split(f.get(0), "-")
-                int y = int(str.tonumber(d.get(0)))
-                int m = int(str.tonumber(d.get(1)))
-                int dd = int(str.tonumber(d.get(2)))
-                evTime.push(timestamp(syminfo.timezone, y, m, dd, 0, 0))
+                // "2026-10-01" -> 20261001, compared with each bar's date as a plain number.
+                evDay.push(int(str.tonumber(str.replace_all(f.get(0), "-", ""))))
                 evSide.push(f.get(1))
                 evSrc.push(f.get(2))
                 string detail = f.get(4)
                 evText.push(f.get(3) + (str.length(detail) > 0 ? " (" + detail + ")" : "") + ", filed " + f.get(0))
 
-// Walk the events once: each lands on the first bar that closes after its filing date.
+// Walk the events once: each lands on the first bar whose closing date is on or after its filing date.
 var int nextIdx = 0
+var int shown = 0
 bool congressBuy = false
 bool congressSell = false
 bool insiderBuy = false
@@ -269,13 +267,16 @@ bool insiderSell = false
 string buyTip = ""
 string sellTip = ""
 int barEnd = na(time_close) ? time : time_close
-while nextIdx < evTime.size() and evTime.get(nextIdx) < barEnd
+int barDay = year(barEnd, syminfo.timezone) * 10000 + month(barEnd, syminfo.timezone) * 100 + dayofmonth(barEnd, syminfo.timezone)
+int barStartDay = year(time, syminfo.timezone) * 10000 + month(time, syminfo.timezone) * 100 + dayofmonth(time, syminfo.timezone)
+while nextIdx < evDay.size() and evDay.get(nextIdx) <= barDay
     // On the first bar, anything older was filed before the chart's history starts.
-    if bar_index > 0 or evTime.get(nextIdx) >= time
+    if bar_index > 0 or evDay.get(nextIdx) >= barStartDay
         bool isCongress = evSrc.get(nextIdx) == "C"
         bool isBuy = evSide.get(nextIdx) == "B"
         if (isCongress ? showCongress : showInsider) and (isBuy or showSells)
             string entry = (isCongress ? "Congress: " : "Insider: ") + evText.get(nextIdx)
+            shown += 1
             if isBuy
                 buyTip += (str.length(buyTip) > 0 ? "\n" : "") + entry
                 if isCongress
@@ -304,11 +305,11 @@ if anyBuy
     string who = congressBuy and insiderBuy ? "C+I" : congressBuy ? "C" : "I"
     label.new(bar_index, low, (clusterBuy ? "★ " : "") + who, yloc = yloc.belowbar, style = label.style_label_up,
          color = clusterBuy ? color.yellow : congressBuy ? color.green : color.teal,
-         textcolor = clusterBuy ? color.black : color.white, size = size.small, tooltip = buyTip)
+         textcolor = clusterBuy ? color.black : color.white, size = size.normal, tooltip = buyTip)
 if anySell
     string who = congressSell and insiderSell ? "C+I" : congressSell ? "C" : "I"
     label.new(bar_index, high, who, yloc = yloc.abovebar, style = label.style_label_down,
-         color = congressSell ? color.red : color.orange, textcolor = color.white, size = size.small, tooltip = sellTip)
+         color = congressSell ? color.red : color.orange, textcolor = color.white, size = size.normal, tooltip = sellTip)
 
 bgcolor(clusterBuy ? color.new(color.yellow, 85) : na, title = "Cluster buy")
 
@@ -325,6 +326,6 @@ if anySell
 
 var table info = table.new(position.top_right, 1, 1)
 if showTable and barstate.islast
-    string msg = evTime.size() > 0 ? str.tostring(evTime.size()) + " Quiver trades for " + syminfo.ticker : "No Quiver trades for " + syminfo.ticker + " in this data"
+    string msg = evDay.size() > 0 ? str.tostring(evDay.size()) + " Quiver trades for " + syminfo.ticker + ", " + str.tostring(shown) + " on chart" : "No Quiver trades for " + syminfo.ticker + " in this data"
     table.cell(info, 0, 0, msg + "\nData as of " + AS_OF, text_color = chart.fg_color, text_size = size.small,
          bgcolor = color.new(chart.bg_color, 20))
