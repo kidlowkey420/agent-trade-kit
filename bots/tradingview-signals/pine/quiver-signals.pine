@@ -1,0 +1,330 @@
+//@version=6
+// Quiver Congress & Insider Signals
+// Data: Quiver Quant, generated 2026-10-20 (216 tickers, 308 trades) by bots/tradingview-signals.
+// Pine Script can't fetch outside data, so the trades are embedded below. Regenerate the
+// script to refresh them instead of editing the data block by hand.
+// Chart markers and alerts only: this script never places orders.
+indicator("Quiver Congress & Insider Signals", shorttitle = "Quiver", overlay = true, max_labels_count = 500)
+
+const string AS_OF = "{{AS_OF}}"
+
+bool showCongress = input.bool(true, "Congress trades", group = "Show")
+bool showInsider = input.bool(true, "Insider trades (SEC Form 4)", group = "Show")
+bool showSells = input.bool(true, "Sells", group = "Show")
+bool showTable = input.bool(true, "Info panel", group = "Show")
+int clusterDays = input.int(30, "Cluster window (days)", minval = 1, group = "Signals",
+     tooltip = "A buy is a cluster buy when Congress and insiders both bought this stock within this many days.")
+
+// Records are date|side|source|who|detail, oldest first. side: B/S. source: C = Congress, I = insider.
+eventsFor(string t) =>
+    switch t
+        "AAPL" => "2026-10-01|B|C|Cleo Fields|$1,001 - $15,000"
+        "ABT" => "2026-10-12|B|C|Gilbert Cisneros|$1,001 - $15,000"
+        "ACOG" => "2026-10-19|B|I|Opaleye Management Inc.|14,283 sh"
+        "ADI" => "2026-10-01|S|C|Whitehouse, Sheldon|$1,001 - $15,000;2026-10-12|B|C|Rick Larsen|$1,001 - $15,000"
+        "AEIS" => "2026-10-12|B|C|Gilbert Cisneros|$1,001 - $15,000"
+        "AGMB" => "2026-10-09|B|I|Epstein David R|5,000 sh"
+        "AHRT" => "2026-10-09|B|I|Wimbush Frederick Blair|633 sh;2026-10-09|B|I|BIGMAN THEODORE|1,879 sh"
+        "AIO" => "2026-09-25|S|C|Kevin Hern|$1,001 - $15,000"
+        "ALGM" => "2026-10-12|B|C|Gilbert Cisneros|$1,001 - $15,000"
+        "ALKS" => "2026-10-12|B|C|Gilbert Cisneros|$1,001 - $15,000"
+        "AMAT" => "2026-10-07|S|C|Josh Gottheimer|$1,001 - $15,000"
+        "AMGN" => "2026-10-01|B|C|David J. Taylor|$1,001 - $15,000"
+        "API" => "2026-10-13|B|I|Zhao Bin|5,301 sh;2026-10-15|B|I|Zhao Bin|9,757 sh;2026-10-19|B|I|Zhao Bin|8,800 sh"
+        "APLD" => "2026-10-19|B|I|Cummins Wes|55,803 sh;2026-10-19|B|I|Zhang Jason Gechen|300,000 sh"
+        "APP" => "2026-10-12|B|C|Gilbert Cisneros|$1,001 - $15,000"
+        "ATRC" => "2026-10-12|S|C|Gilbert Cisneros|$1,001 - $15,000"
+        "AVGO" => "2026-10-12|S|C|Gilbert Cisneros|$1,001 - $15,000"
+        "AVO" => "2026-10-13|B|I|Gonzalez Luis A|22,026 sh"
+        "AZO" => "2026-10-14|S|C|Richard W. Allen|$15,001 - $50,000"
+        "BA" => "2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000"
+        "BAC" => "2026-10-16|S|C|Laurel Lee|$50,001 - $100,000"
+        "BBIO" => "2026-10-12|S|C|Gilbert Cisneros|$1,001 - $15,000"
+        "BCPC" => "2026-10-12|B|C|Gilbert Cisneros|$1,001 - $15,000"
+        "BEP" => "2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000"
+        "BHE" => "2026-10-12|B|C|Gilbert Cisneros|$15,001 - $50,000"
+        "BIIB" => "2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000"
+        "BORR" => "2026-10-13|B|I|Troim Tor Olav|2,500,000 sh;2026-10-14|B|I|Troim Tor Olav|1,500,000 sh;2026-10-15|B|I|Troim Tor Olav|750,000 sh;2026-10-16|B|I|Troim Tor Olav|500,000 sh;2026-10-16|B|I|Snowling Harvey Edward|300,000 sh"
+        "BPRE" => "2026-10-10|B|I|KAMFAR RAMIN|171,094 sh;2026-10-14|B|I|KAMFAR RAMIN|157,661 sh;2026-10-15|B|I|Ruddy Jordan B.|3,520 sh;2026-10-15|B|I|MacDonald Ryan S|120 sh;2026-10-19|B|I|KAMFAR RAMIN|101,753 sh"
+        "BRKB" => "2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000;2026-10-14|B|C|Richard Dean Dr Mccormick|$1,001 - $15,000"
+        "BYRN" => "2026-10-16|B|I|Roth Adam L.|7,500 sh"
+        "BZUN" => "2026-10-14|B|I|Qiu Wenbin|5,800 sh;2026-10-16|B|I|Qiu Wenbin|5,800 sh"
+        "C" => "2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000"
+        "CACI" => "2026-10-12|B|C|Lisa Mcclain|$15,001 - $50,000"
+        "CAT" => "2026-10-12|B|C|Lisa Mcclain|$1,001 - $15,000"
+        "CB" => "2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000;2026-10-13|S|C|Kevin Hern|$1,001 - $15,000"
+        "CINF" => "2026-10-12|B|C|Gilbert Cisneros|$1,001 - $15,000"
+        "CINT" => "2026-10-13|B|I|Martins Fernando Matt Borges|132 sh"
+        "CNXU" => "2026-10-19|B|I|Purcell Lynn Sebastian|166,666 sh"
+        "COCO" => "2026-10-12|B|C|Gilbert Cisneros|$1,001 - $15,000"
+        "COST" => "2026-10-14|S|C|Richard W. Allen|$1,001 - $15,000"
+        "CRBG" => "2026-10-13|B|I|NIPPON LIFE INSURANCE CO|261,198 sh;2026-10-14|B|I|NIPPON LIFE INSURANCE CO|143,190 sh;2026-10-15|B|I|NIPPON LIFE INSURANCE CO|253,776 sh;2026-10-16|B|I|NIPPON LIFE INSURANCE CO|602,103 sh;2026-10-19|B|I|NIPPON LIFE INSURANCE CO|122,762 sh"
+        "CRESY" => "2026-10-15|B|I|Elsztain Alejandro Gustavo|8,295 sh"
+        "CRM" => "2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000"
+        "CRT" => "2026-10-09|B|I|OLIVER ERIC L|6,041 sh;2026-10-14|B|I|OLIVER ERIC L|1,377 sh"
+        "CSCO" => "2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000"
+        "CTNT" => "2026-10-13|B|I|Liu Huan|100,000 sh"
+        "CTTH" => "2026-10-19|B|I|CTT PHARMACEUTICAL HOLDINGS, INC.|2,000 sh"
+        "CTVA" => "2026-10-12|S|C|Gilbert Cisneros|$1,001 - $15,000"
+        "CTY" => "2026-10-19|B|I|NELSEN ROBERT|170,000 sh;2026-10-19|B|I|ARCH Venture Partners XII, LLC|170,000 sh"
+        "CVX" => "2026-10-07|B|C|Maria Elvira Salazar|$1,001 - $15,000;2026-10-13|S|C|Kevin Hern|$15,001 - $50,000"
+        "CXM" => "2026-10-15|B|I|WARD JR STEPHEN M|150,000 sh"
+        "CYTK" => "2026-10-12|B|C|Gilbert Cisneros|$1,001 - $15,000"
+        "DDOG" => "2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000"
+        "DECK" => "2026-10-12|S|C|Gilbert Cisneros|$1,001 - $15,000"
+        "DGXX" => "2026-10-15|B|I|Amar Michel|20,000 sh"
+        "DLPN" => "2026-10-13|B|I|O'Dowd William IV|4,700 sh"
+        "DOLE" => "2026-10-14|B|I|Pale Fire Capital SE|5,700 sh"
+        "DPZ" => "2026-10-12|S|C|Gilbert Cisneros|$1,001 - $15,000"
+        "DSM" => "2026-10-19|B|I|Saba Capital Management, L.P.|13,762 sh"
+        "DVN" => "2026-10-13|S|C|Kevin Hern|$50,001 - $100,000"
+        "ECF" => "2026-10-13|B|I|Saba Capital Management, L.P.|27,937 sh;2026-10-14|B|I|Saba Capital Management, L.P.|14,600 sh;2026-10-15|B|I|Saba Capital Management, L.P.|56,083 sh;2026-10-19|B|I|Saba Capital Management, L.P.|9,969 sh"
+        "EDRY" => "2026-10-14|B|I|Pittas Aristeidis P|350 sh;2026-10-16|B|I|Pittas Aristeidis P|300 sh"
+        "ELTP" => "2026-10-19|B|I|Dash Barry H|100,000 sh"
+        "EMR" => "2026-10-13|S|C|Kevin Hern|$15,001 - $50,000"
+        "EP" => "2026-10-13|B|I|Mulacek Phil E|4,281 sh;2026-10-19|B|I|Mulacek Phil E|2,603 sh"
+        "EPAC" => "2026-10-12|B|C|Gilbert Cisneros|$1,001 - $15,000"
+        "EQBK" => "2026-10-19|B|I|Borck Leon|380 sh"
+        "FDX" => "2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000;2026-10-12|S|C|Rick Larsen|$1,001 - $15,000"
+        "FEAM" => "2026-10-09|B|I|Weibel Paul Wesley III|7,176 sh;2026-10-13|B|I|vant Hoff Graham|60,000 sh"
+        "FINS" => "2026-10-13|B|I|Bortz Robert Edward III|418 sh"
+        "FIS" => "2026-10-12|S|C|Gilbert Cisneros|$1,001 - $15,000;2026-10-16|B|I|Goldstein Jeffrey A|1,585 sh"
+        "FITB" => "2026-10-15|B|C|David J. Taylor|$1,001 - $15,000"
+        "FLSC" => "2026-10-15|B|I|Cha Albert|300,000 sh"
+        "FNGR" => "2026-10-19|B|I|Polimeni Christopher Vincent|13,500 sh;2026-10-19|B|I|KAHN JOLIE|15,000 sh"
+        "FSS" => "2026-10-12|B|C|Gilbert Cisneros|$1,001 - $15,000"
+        "FUL" => "2026-10-19|B|I|Malik Muhammad Shahbaz|479 sh"
+        "GABC" => "2026-10-16|B|I|Ryan Christina M|2 sh;2026-10-16|B|I|Bawel Zachary W|344 sh;2026-10-16|B|I|Seger Andrew M|2 sh"
+        "GE" => "2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000"
+        "GF" => "2026-10-14|B|I|Saba Capital Management, L.P.|3,100 sh;2026-10-15|B|I|Saba Capital Management, L.P.|1,662 sh;2026-10-19|B|I|Saba Capital Management, L.P.|16,577 sh"
+        "GLASFUNDSLP" => "2026-09-27|B|C|Max Miller|$1,001 - $15,000"
+        "GLW" => "2026-10-07|B|C|Maria Elvira Salazar|$1,001 - $15,000;2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000"
+        "GME" => "2026-10-13|B|I|Cohen Ryan|67,130 sh"
+        "GMED" => "2026-10-12|B|C|Gilbert Cisneros|$1,001 - $15,000"
+        "GOLD" => "2026-10-13|B|I|Tether Global Investments Fund, S.I.C.A.|31,088 sh;2026-10-15|B|I|Tether Global Investments Fund, S.I.C.A.|25,200 sh"
+        "GOOG" => "2026-10-01|B|C|Cleo Fields|$1,001 - $15,000"
+        "GRCE" => "2026-10-13|B|I|Opaleye Management Inc.|7,215 sh;2026-10-17|B|I|Opaleye Management Inc.|36,347 sh"
+        "GRSD" => "2026-10-19|B|I|McCrystle Kevin Ross|2,901 sh"
+        "GRX" => "2026-10-13|B|I|Saba Capital Management, L.P.|400 sh;2026-10-19|B|I|Saba Capital Management, L.P.|200 sh"
+        "GS" => "2026-10-02|B|C|Michael Rulli|$1,001 - $15,000;2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000"
+        "GTES" => "2026-10-12|B|C|Gilbert Cisneros|$1,001 - $15,000"
+        "HALO" => "2026-10-12|S|C|Gilbert Cisneros|$1,001 - $15,000"
+        "HBIAPK" => "2026-10-13|B|I|Slattery Thomas M.|1,000 sh"
+        "HD" => "2026-10-01|B|C|David J. Taylor|$1,001 - $15,000;2026-10-05|B|C|Lloyd Doggett|$1,001 - $15,000;2026-10-12|S|C|Rick Larsen|$1,001 - $15,000;2026-10-13|S|C|Kevin Hern|$1,001 - $15,000"
+        "HEIHEIA" => "2026-10-13|B|I|SCHRIESHEIM ALAN|795 sh;2026-10-13|B|I|Fine Carol F.|795 sh;2026-10-13|B|I|HENRIQUES ADOLFO|795 sh;2026-10-13|B|I|Neitzel Julie|592 sh;2026-10-13|B|I|Hildebrandt Mark H|795 sh;2026-10-13|B|I|MENDELSON VICTOR H|795 sh;2026-10-13|B|I|CULLIGAN THOMAS M|795 sh;2026-10-13|B|I|CHERUVATATH NANDAKUMAR|795 sh"
+        "HON" => "2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000"
+        "HONA" => "2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000"
+        "HQY" => "2026-10-19|B|I|Rajasekar Sunil|108 sh"
+        "IAM" => "2026-10-19|B|I|Rachlin Evan Lockwood|718,750 sh"
+        "IBM" => "2026-10-05|B|C|Lloyd Doggett|$1,001 - $15,000;2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000"
+        "IBRX" => "2026-10-12|B|C|Lisa Mcclain|$1,001 - $15,000"
+        "IIPR" => "2026-10-13|B|I|Gold Alan D|40,000 sh"
+        "IMSR" => "2026-10-13|B|I|BUCKMAN FREDERICK W|12,000 sh;2026-10-14|B|I|Irish Simon|16,900 sh"
+        "INBX" => "2026-10-14|B|I|Lappe Mark|100 sh"
+        "INM" => "2026-10-08|B|I|ADAR1 Capital Management, LLC|2,256 sh;2026-10-15|B|I|ADAR1 Capital Management, LLC|984 sh"
+        "INTU" => "2026-10-12|S|C|Gilbert Cisneros|$1,001 - $15,000"
+        "ITT" => "2026-10-12|S|C|Gilbert Cisneros|$15,001 - $50,000"
+        "JCTC" => "2026-10-13|B|I|AJB Investment Fund II, LP|5,000 sh;2026-10-15|B|I|AJB Investment Fund II, LP|2,782 sh"
+        "JNJ" => "2026-10-05|B|C|Lloyd Doggett|$1,001 - $15,000"
+        "JOF" => "2026-10-16|B|I|Saba Capital Management, L.P.|13,133 sh"
+        "JPM" => "2026-10-01|S|C|Whitehouse, Sheldon|$15,001 - $50,000"
+        "KIO" => "2026-10-14|B|I|Pimentel Rudy|1,000 sh"
+        "KWY" => "2026-10-16|B|I|Hansen Kent A|160 sh;2026-10-16|B|I|Fitzgerald John Taylor Maloney|357 sh"
+        "LCU" => "2026-10-09|B|I|Alford Tony L|5,000 sh;2026-10-13|B|I|SHARMAN MARK BRADY|3,500 sh;2026-10-14|B|I|Alford Tony L|1,000 sh"
+        "LIN" => "2026-10-13|S|C|Kevin Hern|$15,001 - $50,000"
+        "LMT" => "2026-10-13|S|C|Kevin Hern|$15,001 - $50,000"
+        "LNBIX" => "2026-10-19|B|I|Lincoln Financial Investments Corp|2,477,701 sh"
+        "LOW" => "2026-10-13|S|C|Kevin Hern|$1,001 - $15,000"
+        "MCD" => "2026-10-07|S|C|Josh Gottheimer|$1,001 - $15,000"
+        "MCHP" => "2026-10-12|S|C|Gilbert Cisneros|$1,001 - $15,000"
+        "MDBH" => "2026-10-15|B|I|MARLETT CHRISTOPHER A|10,000 sh;2026-10-16|B|I|MARLETT CHRISTOPHER A|917 sh"
+        "META" => "2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000;2026-10-07|B|C|Maria Elvira Salazar|$1,001 - $15,000"
+        "MOGA" => "2026-10-12|B|C|Gilbert Cisneros|$1,001 - $15,000"
+        "MPC" => "2026-10-01|S|C|David J. Taylor|$1,001 - $15,000"
+        "MRK" => "2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000"
+        "MRNA" => "2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000"
+        "MRSH" => "2026-10-13|S|C|Kevin Hern|$50,001 - $100,000"
+        "MRVL" => "2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000"
+        "MSFT" => "2026-10-01|B|C|Cleo Fields|$1,001 - $15,000;2026-10-02|S|C|Michael Rulli|$1,001 - $15,000;2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000;2026-10-12|B|C|Lisa Mcclain|$1,001 - $15,000"
+        "MTSI" => "2026-10-12|S|C|Gilbert Cisneros|$1,001 - $15,000"
+        "MXF" => "2026-10-15|B|I|Saba Capital Management, L.P.|12,791 sh"
+        "NA" => "2026-10-16|B|I|Buffington Mark|1,437 sh;2026-10-16|B|I|Flickinger Mark|1,064 sh"
+        "NAD" => "2026-10-16|B|I|TOTH TERENCE J|4,587 sh"
+        "NBIS" => "2026-10-16|B|I|Grimme Arne|148 sh"
+        "NEE" => "2026-10-13|S|C|Kevin Hern|$15,001 - $50,000"
+        "NEOG" => "2026-10-09|B|I|Nassif Mikheal|505 sh"
+        "NFLX" => "2026-10-01|B|C|Cleo Fields|$1,001 - $15,000"
+        "NG" => "2026-10-12|B|C|Lisa Mcclain|$1,001 - $15,000"
+        "NMCO" => "2026-10-09|B|I|Hamilton Michael S.|3,000 sh"
+        "NOKBF" => "2026-10-16|B|C|Laurel Lee|$15,001 - $50,000"
+        "NRXS" => "2026-10-08|B|I|Henrichs Timothy Robert|1,937 sh;2026-10-08|B|I|Carrico Thomas Joeseph|328 sh;2026-10-08|B|I|Carrico Brian Allen|268 sh"
+        "NUAI" => "2026-10-14|B|I|MCCARTHY KENT C|250,000 sh"
+        "NVDA" => "2026-10-14|S|C|Daniel Meuser|$1,001 - $15,000"
+        "NVO" => "2026-09-25|S|C|Kevin Hern|$1,001 - $15,000"
+        "NXPI" => "2026-10-12|B|C|Gilbert Cisneros|$15,001 - $50,000"
+        "OKE" => "2026-09-25|S|C|Kevin Hern|$15,001 - $50,000"
+        "OKTA" => "2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000;2026-10-07|B|C|Maria Elvira Salazar|$1,001 - $15,000"
+        "OLN" => "2026-10-12|B|C|Lisa Mcclain|$15,001 - $50,000"
+        "ON" => "2026-10-12|B|C|Gilbert Cisneros|$15,001 - $50,000"
+        "ONMD" => "2026-10-14|B|I|Yu Jeffrey|45,126 sh"
+        "ORLY" => "2026-09-25|S|C|Kevin Hern|$15,001 - $50,000"
+        "OXM" => "2026-10-12|S|C|Gilbert Cisneros|$1,001 - $15,000"
+        "PAM" => "2026-10-16|B|I|Mindlin Marcos Marcelo|435,000 sh"
+        "PBA" => "2026-09-25|S|C|Kevin Hern|$15,001 - $50,000"
+        "PCQ" => "2026-10-13|B|I|BANK OF AMERICA CORP /DE/|2,000 sh;2026-10-16|B|I|BANK OF AMERICA CORP /DE/|2,000 sh"
+        "PED" => "2026-10-13|B|I|KUKES SIMON G|147,070 sh"
+        "PEP" => "2026-10-16|B|I|POHLAD ROBERT C|45,075 sh"
+        "PG" => "2026-10-15|S|C|David J. Taylor|$1,001 - $15,000"
+        "PODC" => "2026-10-14|B|I|MERRIMAN D JONATHAN|4,700 sh"
+        "PODD" => "2026-10-12|S|C|Gilbert Cisneros|$1,001 - $15,000"
+        "PPG" => "2026-10-05|B|C|Lloyd Doggett|$1,001 - $15,000"
+        "PRAX" => "2026-10-12|B|C|Gilbert Cisneros|$1,001 - $15,000"
+        "PRGS" => "2026-09-25|S|C|Kevin Hern|$15,001 - $50,000"
+        "PRIM" => "2026-10-16|B|I|MCCALLISTER TERRY D|22 sh"
+        "PRTA" => "2026-10-09|B|I|SCULLY WILLIAM P|90,000 sh;2026-10-15|B|I|SCULLY WILLIAM P|10,000 sh"
+        "PTC" => "2026-09-25|S|C|Kevin Hern|$50,001 - $100,000;2026-10-12|S|C|Gilbert Cisneros|$1,001 - $15,000"
+        "PTON" => "2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000"
+        "QTEX" => "2026-10-09|B|I|Ben-Noon Dagi Shahar|18,181 sh;2026-10-13|B|I|Ben-Noon Dagi Shahar|14,093 sh;2026-10-15|B|I|Parnes Tal|6,666 sh"
+        "QVCG" => "2026-10-14|B|I|GOLDENTREE ASSET MANAGEMENT LP|1,352,000 sh"
+        "RARE" => "2026-10-12|B|C|Gilbert Cisneros|$1,001 - $15,000"
+        "RBC" => "2026-10-12|S|C|Gilbert Cisneros|$15,001 - $50,000"
+        "RH" => "2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000"
+        "RIG" => "2026-10-12|B|C|Lisa Mcclain|$15,001 - $50,000"
+        "ROK" => "2026-09-25|S|C|Kevin Hern|$15,001 - $50,000;2026-10-13|S|C|Kevin Hern|$15,001 - $50,000"
+        "RPM" => "2026-10-15|B|C|David J. Taylor|$1,001 - $15,000"
+        "RTSN" => "2026-10-13|B|I|Keller Eric L.|20,800 sh;2026-10-13|B|I|BERGER FRANKLIN M|10,000 sh"
+        "RVTY" => "2026-10-12|S|C|Gilbert Cisneros|$1,001 - $15,000"
+        "SAFX" => "2026-10-16|B|I|EEME Energy SPV I, LLC|119,397,858 sh"
+        "SAH" => "2026-10-16|B|I|Rusnak Paul P.|12,555 sh"
+        "SAR" => "2026-10-13|B|I|Oberbeck Christian L|15,000 sh"
+        "SBLK" => "2026-10-14|B|I|Zagari Raffaele|"
+        "SBUX" => "2026-09-25|S|C|Kevin Hern|$1,001 - $15,000;2026-10-13|S|C|Kevin Hern|$15,001 - $50,000"
+        "SMTC" => "2026-10-12|S|C|Gilbert Cisneros|$1,001 - $15,000"
+        "SNES" => "2026-10-19|B|I|GLENBROOK CAPITAL MANAGEMENT|376,552 sh"
+        "SNOW" => "2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000;2026-10-07|B|C|Maria Elvira Salazar|$15,001 - $50,000"
+        "SPCX" => "2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000"
+        "STAG" => "2026-10-12|B|C|Gilbert Cisneros|$1,001 - $15,000"
+        "STE" => "2026-09-25|S|C|Kevin Hern|$15,001 - $50,000"
+        "STX" => "2026-09-25|S|C|Kevin Hern|$1,001 - $15,000;2026-10-12|S|C|Lisa Mcclain|$15,001 - $50,000"
+        "SWZ" => "2026-10-13|B|I|GOLDSTEIN PHILLIP|5,000 sh"
+        "T" => "2026-10-15|B|C|David J. Taylor|$1,001 - $15,000"
+        "TDIC" => "2026-10-14|B|I|Seto Wai Yue|300,000 sh"
+        "TEGO" => "2026-10-15|B|I|Tourism & Entertainment Group, LLC|124,506,935 sh;2026-10-15|B|I|Artikkhodjaev Jakhongir Abidovich|124,506,935 sh"
+        "TEO" => "2026-10-14|B|I|Heine Martin Andres|7,000 sh"
+        "TJX" => "2026-09-25|S|C|Kevin Hern|$1,001 - $15,000"
+        "TNDM" => "2026-10-12|B|C|Gilbert Cisneros|$1,001 - $15,000"
+        "TRXB" => "2026-10-13|B|I|SVLSF VI, LLC|3,074 sh;2026-10-15|B|I|Alexandria Venture Investments, LLC|178,571 sh"
+        "TSM" => "2026-10-08|B|I|Chuang Tzu-Sou|46 sh;2026-10-08|B|I|Tien Bor-Zen|7 sh;2026-10-12|B|C|Gilbert Cisneros|$1,001 - $15,000"
+        "TTD" => "2026-10-12|S|C|Gilbert Cisneros|$1,001 - $15,000"
+        "UMH" => "2026-10-16|B|I|Mitchell William Edward|68 sh;2026-10-16|B|I|Miller Kevin S.|68 sh"
+        "UNH" => "2026-09-25|S|C|Kevin Hern|$15,001 - $50,000;2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000;2026-10-13|S|C|Kevin Hern|$15,001 - $50,000"
+        "URI" => "2026-10-07|S|C|Maria Elvira Salazar|$1,001 - $15,000"
+        "UXIN" => "2026-10-08|B|I|Dai Kun|5,505 sh;2026-10-09|B|I|Dai Kun|11,836 sh;2026-10-13|B|I|Dai Kun|9,800 sh;2026-10-15|B|I|Dai Kun|5,400 sh;2026-10-16|B|I|Dai Kun|4,100 sh;2026-10-19|B|I|Dai Kun|2,548 sh"
+        "V" => "2026-10-01|S|C|Whitehouse, Sheldon|$1,001 - $15,000"
+        "VMO" => "2026-10-15|B|I|Setcavage Rebecca|3,000 sh"
+        "VUZI" => "2026-09-25|S|C|Kevin Hern|$1,001 - $15,000"
+        "VZ" => "2026-10-12|B|C|Gilbert Cisneros|$1,001 - $15,000"
+        "WDC" => "2026-10-12|S|C|Gilbert Cisneros|$1,001 - $15,000"
+        "WFC" => "2026-10-02|S|C|Michael Rulli|$1,001 - $15,000"
+        "WSM" => "2026-10-12|B|C|Rick Larsen|$1,001 - $15,000"
+        "WUXIF" => "2026-10-12|B|C|Gilbert Cisneros|$1,001 - $15,000"
+        "WVVI" => "2026-10-08|B|I|Osborn Michael Jordan|294 sh;2026-10-13|B|I|Hazlett John Walter|2,004 sh"
+        "XAIR" => "2026-10-14|B|I|Lin Yi-Chien|2,607 sh"
+        "XFOR" => "2026-10-19|B|I|Craig Adam R|4,600 sh"
+        "YETI" => "2026-10-12|B|C|Gilbert Cisneros|$1,001 - $15,000"
+        "ZONE" => "2026-10-14|B|I|Hassen Tyler Lewis|1,000,000 sh;2026-10-15|B|I|Hassen Tyler Lewis|750,000 sh;2026-10-16|B|I|Hassen Tyler Lewis|500,000 sh"
+        "ZTS" => "2026-10-12|B|C|Gilbert Cisneros|$1,001 - $15,000"
+        => ""
+
+// "BRK.B" and "BRK-B" are stored as "BRKB".
+string symKey = str.replace_all(str.replace_all(str.upper(syminfo.ticker), ".", ""), "-", "")
+
+var array<int> evTime = array.new<int>()
+var array<string> evSide = array.new<string>()
+var array<string> evSrc = array.new<string>()
+var array<string> evText = array.new<string>()
+
+if barstate.isfirst
+    string raw = eventsFor(symKey)
+    if str.length(raw) > 0
+        for rec in str.split(raw, ";")
+            array<string> f = str.split(rec, "|")
+            if f.size() >= 5
+                array<string> d = str.split(f.get(0), "-")
+                int y = int(str.tonumber(d.get(0)))
+                int m = int(str.tonumber(d.get(1)))
+                int dd = int(str.tonumber(d.get(2)))
+                evTime.push(timestamp(syminfo.timezone, y, m, dd, 0, 0))
+                evSide.push(f.get(1))
+                evSrc.push(f.get(2))
+                string detail = f.get(4)
+                evText.push(f.get(3) + (str.length(detail) > 0 ? " (" + detail + ")" : "") + ", filed " + f.get(0))
+
+// Walk the events once: each lands on the first bar that closes after its filing date.
+var int nextIdx = 0
+bool congressBuy = false
+bool congressSell = false
+bool insiderBuy = false
+bool insiderSell = false
+string buyTip = ""
+string sellTip = ""
+int barEnd = na(time_close) ? time : time_close
+while nextIdx < evTime.size() and evTime.get(nextIdx) < barEnd
+    // On the first bar, anything older was filed before the chart's history starts.
+    if bar_index > 0 or evTime.get(nextIdx) >= time
+        bool isCongress = evSrc.get(nextIdx) == "C"
+        bool isBuy = evSide.get(nextIdx) == "B"
+        if (isCongress ? showCongress : showInsider) and (isBuy or showSells)
+            string entry = (isCongress ? "Congress: " : "Insider: ") + evText.get(nextIdx)
+            if isBuy
+                buyTip += (str.length(buyTip) > 0 ? "\n" : "") + entry
+                if isCongress
+                    congressBuy := true
+                else
+                    insiderBuy := true
+            else
+                sellTip += (str.length(sellTip) > 0 ? "\n" : "") + entry
+                if isCongress
+                    congressSell := true
+                else
+                    insiderSell := true
+    nextIdx += 1
+
+var int lastCongressBuy = na
+var int lastInsiderBuy = na
+if congressBuy
+    lastCongressBuy := time
+if insiderBuy
+    lastInsiderBuy := time
+bool anyBuy = congressBuy or insiderBuy
+bool anySell = congressSell or insiderSell
+bool clusterBuy = anyBuy and not na(lastCongressBuy) and not na(lastInsiderBuy) and math.abs(lastCongressBuy - lastInsiderBuy) <= clusterDays * 86400000
+
+if anyBuy
+    string who = congressBuy and insiderBuy ? "C+I" : congressBuy ? "C" : "I"
+    label.new(bar_index, low, (clusterBuy ? "★ " : "") + who, yloc = yloc.belowbar, style = label.style_label_up,
+         color = clusterBuy ? color.yellow : congressBuy ? color.green : color.teal,
+         textcolor = clusterBuy ? color.black : color.white, size = size.small, tooltip = buyTip)
+if anySell
+    string who = congressSell and insiderSell ? "C+I" : congressSell ? "C" : "I"
+    label.new(bar_index, high, who, yloc = yloc.abovebar, style = label.style_label_down,
+         color = congressSell ? color.red : color.orange, textcolor = color.white, size = size.small, tooltip = sellTip)
+
+bgcolor(clusterBuy ? color.new(color.yellow, 85) : na, title = "Cluster buy")
+
+alertcondition(congressBuy, "Congress buy", "Quiver: a member of Congress disclosed a buy of {{ticker}}")
+alertcondition(insiderBuy, "Insider buy", "Quiver: an insider disclosed an open-market buy of {{ticker}}")
+alertcondition(clusterBuy, "Cluster buy", "Quiver: Congress and insiders both bought {{ticker}} recently")
+alertcondition(anySell, "Congress or insider sell", "Quiver: a Congress or insider sell of {{ticker}} was disclosed")
+
+// Detailed message for alerts set to "Any alert() function call".
+if anyBuy
+    alert(syminfo.ticker + (clusterBuy ? " CLUSTER BUY" : " buy") + " disclosed\n" + buyTip, alert.freq_once_per_bar)
+if anySell
+    alert(syminfo.ticker + " sell disclosed\n" + sellTip, alert.freq_once_per_bar)
+
+var table info = table.new(position.top_right, 1, 1)
+if showTable and barstate.islast
+    string msg = evTime.size() > 0 ? str.tostring(evTime.size()) + " Quiver trades for " + syminfo.ticker : "No Quiver trades for " + syminfo.ticker + " in this data"
+    table.cell(info, 0, 0, msg + "\nData as of " + AS_OF, text_color = chart.fg_color, text_size = size.small,
+         bgcolor = color.new(chart.bg_color, 20))
